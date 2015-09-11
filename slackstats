@@ -16,9 +16,18 @@ usage:  slackstats -s [start_date_in_YYYYMMDDHHMM] -e [end_date_in_YYYYMMDDHHMM]
 
 EOD;
 
-// Set cache file names
-$usercachefile = "users.cache";
-$groupcachefile = "groups.cache";
+// Initialize finished variable
+$has_more = false;
+
+// Set number of messages to max
+$count = 1000;
+
+// Include the first message by default on the first run
+$inclusive = 1;
+
+//Initialize message data array
+unset($messagedata);
+$messagedata=array();
 
 /* --- Check and set command line arguments --- */
 $options = getopt("s:e:fn");
@@ -37,15 +46,20 @@ if ($kill_script) {
   die($str_usage);
 }
 else {
-  $start_date = date("c",strtotime($options['s']));
-  $end_date = date("c",strtotime($options['e']));
+  $start_date = strtotime($options['s']);
+  $end_date = strtotime($options['e']);
   if ( (array_key_exists("f",$options)) && ($options['f'] != false) ) {
     $excludelist = file($options['f'], FILE_IGNORE_NEW_LINES);
   }
   if ( array_key_exists("n",$options) ) {
     $suppresszero = true;
   }
+  $messagecachefile = "messages_" . strtotime($options['s']) . "_" . strtotime($options['e']) . ".cache";
 }
+
+// Set cache file names
+$usercachefile = "users.cache";
+$groupcachefile = "groups.cache";
 
 
 /* --- Pull User Names -- */
@@ -92,12 +106,11 @@ else { // If the cache file is not expired, import the org data from the cache f
   $userlist = json_decode(file_get_contents($usercachefile), true);
 }
 
-var_dump($userlist);
 
 /* --- Pull Group Names ---*/
 
 if ( (time() - @filemtime($groupcachefile)) > $cache_expire_time ) { // If the cache file does not exist or is expired, get the commit data from the API
-  echo "Group cache file not found or expired. Querying API for group data...";
+  echo "Group cache file not found or expired. Querying Slack API for group data...";
   @unlink($groupcachefile);
 
   // Set Slack API Endpoint
@@ -138,5 +151,61 @@ else { // If the cache file is not expired, import the commit data from the cach
   $grouplist = json_decode(file_get_contents($groupcachefile), true);
 }
 
-var_dump($grouplist);
+
+/* --- Pull Slack Message Data -- */
+if ( (time() - @filemtime($messagecachefile)) > $cache_expire_time ) { // If the cache file does not exist or is expired, get the commit data from the API
+  echo "Message cache file not found or expired. Querying Slack API for message data...";
+  @unlink($messagecachefile);
+
+  // Set Slack API Endpoint
+  $apiendpoint = "https://slack.com/api/groups.history";
+
+  do {
+    $fields = array(
+      'token' => urlencode($token),
+      'channel' => urlencode($channel),
+      'count' => urlencode($count),
+      'inclusive' => urlencode($inclusive),
+      'oldest' => urlencode($start_date),
+      'latest' => urlencode($end_date)
+    );
+
+    //url-ify the data for the POST
+    foreach($fields as $key=>$value) { $fields_string .= $key.'='.$value.'&'; }
+    rtrim($fields_string, '&');
+
+    //open connection
+    $ch = curl_init();
+
+    //set the url, number of POST vars, POST data
+    curl_setopt($ch,CURLOPT_URL, $apiendpoint);
+    curl_setopt($ch,CURLOPT_POST, count($fields));
+    curl_setopt($ch,CURLOPT_POSTFIELDS, $fields_string);
+    curl_setopt($ch,CURLOPT_RETURNTRANSFER, true);
+
+    //execute post
+    $result = json_decode(curl_exec($ch));
+
+    //close connection
+    curl_close($ch);
+    foreach ($result->messages as $message ) {  
+      if ( $message->subtype == "" ) {  //Only display messages without a subtype since these are actual user typed messages
+        $messagedata[$i]['ts'] = $message->ts;
+        $messagedata[$i]['user'] = $message->user;
+        $messagedata[$i]['channel'] = $grouplist[$channel];
+      }
+      $latest = $message->ts;
+    }
+    $has_more = $result->has_more;
+    $inclusive = 0;
+  } while ( $has_more == true );
+
+  // After looping through all the pages, save the message data to a cache file
+  echo "DONE\n";
+  file_put_contents($messagecachefile, json_encode($messagedata));
+
+else {
+  $messagedata = json_decode(file_get_contents($messagecachefile), true);
+}
+
 ?>
