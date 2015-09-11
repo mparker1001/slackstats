@@ -1,0 +1,142 @@
+#!/usr/bin/php
+<?php
+// Taken from https://github.com/mparker1001/slackstats. Please refer to this repo for further instructions.
+
+// Get API token and set timezone from environment variables
+$token = getenv('SLACK_API_TOKEN');
+date_default_timezone_set(getenv('SLACK_TIMEZONE'));
+
+// Set cache expire time - 1 hour by default
+$cache_expire_time = "3600";
+// Configure script usage message
+$str_usage = <<<EOD
+usage:  slackstats -s [start_date_in_YYYYMMDDHHMM] -e [end_date_in_YYYYMMDDHHMM] -f [file_containing_channels_to_omit (Optional)]
+                   -n [suppress_zero_commit_orgs (Optional)]
+
+
+EOD;
+
+// Set cache file names
+$usercachefile = "users.cache";
+$groupcachefile = "groups.cache";
+
+/* --- Check and set command line arguments --- */
+$options = getopt("s:e:fn");
+$kill_script = false;
+
+if ( is_null($options['s']) || $options['s'] == false ) {
+  $str_error = "ERROR: Incorrect or Missing Start Date. The -s option is requried.\n";
+  $kill_script = true;
+}
+if ( is_null($options['e']) || $options['e'] == false ) {
+  $str_error .= "ERROR: Incorrect or Missing End Date. The -e option is required.\n";
+  $kill_script = true;
+}
+if ($kill_script) {
+  echo $str_error;
+  die($str_usage);
+}
+else {
+  $start_date = date("c",strtotime($options['s']));
+  $end_date = date("c",strtotime($options['e']));
+  if ( (array_key_exists("f",$options)) && ($options['f'] != false) ) {
+    $excludelist = file($options['f'], FILE_IGNORE_NEW_LINES);
+  }
+  if ( array_key_exists("n",$options) ) {
+    $suppresszero = true;
+  }
+}
+
+
+/* --- Pull User Names -- */
+
+if ( (time() - @filemtime($usercachefile)) > $cache_expire_time ) { // If the cache file does not exist or is expired, get the org data from the API
+  echo "User cache file not found or expired. Querying Slack API for user list...";
+
+  // Set Slack API Endpoint
+  $apiendpoint = "https://slack.com/api/users.list";
+
+  $fields = array(
+    'token' => urlencode($token),
+  );
+
+  //url-ify the data for the POST
+  foreach($fields as $key=>$value) { $fields_string .= $key.'='.$value.'&'; }
+  rtrim($fields_string, '&');
+
+  //open connection
+  $ch = curl_init();
+
+  //set the url, number of POST vars, POST data
+  curl_setopt($ch,CURLOPT_URL, $apiendpoint);
+  curl_setopt($ch,CURLOPT_POST, count($fields));
+  curl_setopt($ch,CURLOPT_POSTFIELDS, $fields_string);
+  curl_setopt($ch,CURLOPT_RETURNTRANSFER, true);
+
+  //execute post
+  $result = json_decode(curl_exec($ch));
+  $userlist = array();
+  foreach ($result->members as $member ) {
+    $userlist[$member->id] = $member->real_name;
+  }
+
+  //close connection
+  curl_close($ch);
+
+  // After looping through all the pages, save the org data to a cache file
+  echo "DONE\n";
+  file_put_contents($usercachefile, json_encode($userlist));
+
+}
+else { // If the cache file is not expired, import the org data from the cache file
+  $userlist = json_decode(file_get_contents($usercachefile), true);
+}
+
+var_dump($userlist);
+
+/* --- Pull Group Names ---*/
+
+if ( (time() - @filemtime($groupcachefile)) > $cache_expire_time ) { // If the cache file does not exist or is expired, get the commit data from the API
+  echo "Group cache file not found or expired. Querying API for group data...";
+  @unlink($groupcachefile);
+
+  // Set Slack API Endpoint
+  $apiendpoint = "https://slack.com/api/groups.list";
+  $fields = array(
+    'token' => urlencode($token),
+  );
+
+  //url-ify the data for the POST
+  foreach($fields as $key=>$value) { $fields_string .= $key.'='.$value.'&'; }
+  rtrim($fields_string, '&');
+
+  //open connection
+  $ch = curl_init();
+
+  //set the url, number of POST vars, POST data
+  curl_setopt($ch,CURLOPT_URL, $apiendpoint);
+  curl_setopt($ch,CURLOPT_POST, count($fields));
+  curl_setopt($ch,CURLOPT_POSTFIELDS, $fields_string);
+  curl_setopt($ch,CURLOPT_RETURNTRANSFER, true);
+
+  //execute post
+  $result = json_decode(curl_exec($ch));
+  $grouplist = array();
+  foreach ($result->groups as $group ) {
+    $grouplist[$group->id] = $group->name;
+  }
+
+  //close connection
+  curl_close($ch);
+
+  // Store the contents into a cache file
+  echo "DONE\n\n";
+  file_put_contents($groupcachefile, json_encode($grouplist));
+
+}
+else { // If the cache file is not expired, import the commit data from the cache file
+  $grouplist = json_decode(file_get_contents($groupcachefile), true);
+}
+
+var_dump($grouplist);
+?>
