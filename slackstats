@@ -156,7 +156,7 @@ else { // If the cache file is not expired, import the commit data from the cach
 
 /* --- Pull Slack Message Data -- */
 if ( (time() - @filemtime($messagecachefile)) > $cache_expire_time ) { // If the cache file does not exist or is expired, get the commit data from the API
-  echo "Message cache file not found or expired. Querying Slack API for message data...";
+  echo "Message cache file not found or expired. Querying Slack API for message data";
   @unlink($messagecachefile);
 
   // Set Slack API Endpoint
@@ -207,14 +207,36 @@ if ( (time() - @filemtime($messagecachefile)) > $cache_expire_time ) { // If the
       $has_more = $result->has_more;
       $inclusive = 0;
     } while ( $has_more == true );
-    echo "$channel\n";
+    echo ".";
   }
   // After looping through all the pages, save the message data to a cache file
-  //echo "DONE\n";
+  echo "DONE\n\n";
   file_put_contents($messagecachefile, json_encode($messagedata));
 }
 else {
   $messagedata = json_decode(file_get_contents($messagecachefile), true);
+}
+
+
+/* --- Display user slack stats --- */
+
+$i=0;
+
+foreach($userlist as $userkey=>$username) {
+  echo "Slack messages for $username between " . date("Y-m-d h:i A",$start_date) . " and " . date("Y-m-d h:i A",$end_date) . "\n";
+  echo str_pad("Channel",40) . str_pad("Messages",8) . "\n";
+  echo str_pad("------------",40) . str_pad("--------",8) . "\n";
+  foreach($grouplist as $channelkey=>$channel) {
+    foreach($messagedata as $message) {
+      if ( ($message['user'] == $userkey) && ($message['channel'] == $channel) ) {
+        $i++;
+      }
+    }
+    if ($i != 0) {
+      echo str_pad($channel,40) . str_pad($i,8) . "\n";
+    }
+    $i=0;
+  }
 }
 
 ?>
