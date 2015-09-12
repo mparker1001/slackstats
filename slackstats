@@ -11,7 +11,7 @@ $cache_expire_time = "3600";
 // Configure script usage message
 $str_usage = <<<EOD
 usage:  slackstats -s [start_date_in_YYYYMMDDHHMM] -e [end_date_in_YYYYMMDDHHMM] -f [file_containing_channels_to_omit (Optional)]
-                   -n [suppress_zero_commit_orgs (Optional)]
+                   -n [suppress_zero_message_channels (Optional)]
 
 
 EOD;
@@ -24,6 +24,9 @@ $count = 1000;
 
 // Include the first message by default on the first run
 $inclusive = 1;
+
+// Initialize loop variable for message data;
+$i = 0;
 
 //Initialize message data array
 unset($messagedata);
@@ -143,14 +146,13 @@ if ( (time() - @filemtime($groupcachefile)) > $cache_expire_time ) { // If the c
   curl_close($ch);
 
   // Store the contents into a cache file
-  echo "DONE\n\n";
+  echo "DONE\n";
   file_put_contents($groupcachefile, json_encode($grouplist));
 
 }
 else { // If the cache file is not expired, import the commit data from the cache file
   $grouplist = json_decode(file_get_contents($groupcachefile), true);
 }
-
 
 /* --- Pull Slack Message Data -- */
 if ( (time() - @filemtime($messagecachefile)) > $cache_expire_time ) { // If the cache file does not exist or is expired, get the commit data from the API
@@ -160,50 +162,57 @@ if ( (time() - @filemtime($messagecachefile)) > $cache_expire_time ) { // If the
   // Set Slack API Endpoint
   $apiendpoint = "https://slack.com/api/groups.history";
 
-  do {
-    $fields = array(
-      'token' => urlencode($token),
-      'channel' => urlencode($channel),
-      'count' => urlencode($count),
-      'inclusive' => urlencode($inclusive),
-      'oldest' => urlencode($start_date),
-      'latest' => urlencode($end_date)
-    );
+  foreach($grouplist as $channelkey=>$channel) {
+    $oldest=$start_date;
+    $latest=$end_date;
+    do {
+      $fields = array(
+        'token' => urlencode($token),
+        'channel' => urlencode($channelkey),
+        'count' => urlencode($count),
+        'inclusive' => urlencode($inclusive),
+        'oldest' => urlencode($oldest),
+        'latest' => urlencode($latest)
+      );
 
-    //url-ify the data for the POST
-    foreach($fields as $key=>$value) { $fields_string .= $key.'='.$value.'&'; }
-    rtrim($fields_string, '&');
+      //url-ify the data for the POST
+      foreach($fields as $key=>$value) { $fields_string .= $key.'='.$value.'&'; }
+      rtrim($fields_string, '&');
 
-    //open connection
-    $ch = curl_init();
+      //open connection
+      $ch = curl_init();
 
-    //set the url, number of POST vars, POST data
-    curl_setopt($ch,CURLOPT_URL, $apiendpoint);
-    curl_setopt($ch,CURLOPT_POST, count($fields));
-    curl_setopt($ch,CURLOPT_POSTFIELDS, $fields_string);
-    curl_setopt($ch,CURLOPT_RETURNTRANSFER, true);
+      //set the url, number of POST vars, POST data
+      curl_setopt($ch,CURLOPT_URL, $apiendpoint);
+      curl_setopt($ch,CURLOPT_POST, count($fields));
+      curl_setopt($ch,CURLOPT_POSTFIELDS, $fields_string);
+      curl_setopt($ch,CURLOPT_RETURNTRANSFER, true);
 
-    //execute post
-    $result = json_decode(curl_exec($ch));
+      //execute post
+      $result = json_decode(curl_exec($ch));
 
-    //close connection
-    curl_close($ch);
-    foreach ($result->messages as $message ) {  
-      if ( $message->subtype == "" ) {  //Only display messages without a subtype since these are actual user typed messages
-        $messagedata[$i]['ts'] = $message->ts;
-        $messagedata[$i]['user'] = $message->user;
-        $messagedata[$i]['channel'] = $grouplist[$channel];
+      //close connection
+      curl_close($ch);
+      foreach ($result->messages as $message ) {
+        if ( $channel == "devops-support") {
+        }
+        if ( $message->subtype == "" ) {  //Only display messages without a subtype since these are actual user typed messages
+          $messagedata[$i]['ts'] = $message->ts;
+          $messagedata[$i]['user'] = $message->user;
+          $messagedata[$i]['channel'] = $channel;
+          $i++;
+        }
+        $oldest = $message->ts;
       }
-      $latest = $message->ts;
-    }
-    $has_more = $result->has_more;
-    $inclusive = 0;
-  } while ( $has_more == true );
-
+      $has_more = $result->has_more;
+      $inclusive = 0;
+    } while ( $has_more == true );
+    echo "$channel\n";
+  }
   // After looping through all the pages, save the message data to a cache file
-  echo "DONE\n";
+  //echo "DONE\n";
   file_put_contents($messagecachefile, json_encode($messagedata));
-
+}
 else {
   $messagedata = json_decode(file_get_contents($messagecachefile), true);
 }
