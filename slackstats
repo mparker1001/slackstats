@@ -11,7 +11,9 @@ $cache_expire_time = "3600";
 // Configure script usage message
 $str_usage = <<<EOD
 usage:  slackstats -s [start_date_in_YYYYMMDDHHMM] -e [end_date_in_YYYYMMDDHHMM] -f [file_containing_emails_to_query (Optional)]
-                   -x [file_containing_channels_to_exclude (Optional)] -n [exclude_zero_message_channels (Optional)]
+                   -u [email_address_to_query (Optional)] -x [file_containing_channels_to_exclude (Optional)]
+                   -n [exclude_zero_message_channels (Optional)]
+ ** Note that if both the -f and -u options are specified, the -f option will be used **
 
 
 EOD;
@@ -36,7 +38,7 @@ unset($messagedata);
 $messagedata=array();
 
 /* --- Check and set command line arguments --- */
-$options = getopt("s:e:f:x:n");
+$options = getopt("s:e:f:x:u:n");
 $kill_script = false;
 
 if ( is_null($options['s']) || $options['s'] == false ) {
@@ -57,6 +59,10 @@ else {
   if ( (array_key_exists("f",$options)) && ($options['f'] != false) ) {
     $customuserlist = true;
     $userincludelist = file($options['f'], FILE_IGNORE_NEW_LINES);
+  }
+  elseif ( (array_key_exists("u",$options)) && ($options['u'] != false) ) {
+    $customuserlist = true;
+    $userincludelist[0] = $options['u'];
   }
   if ( (array_key_exists("x",$options)) && ($options['x'] != false) ) {
     $excludechannels = true;
